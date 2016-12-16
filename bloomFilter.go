@@ -49,26 +49,25 @@ func New(params ...float64) (bloomfilter Bloom) {
 	return bloomfilter
 }
 
-
 type Bloom struct {
-	bitset  Bitset
-	sizeExp uint64
-	size    uint64
-	setLocs uint64
-	shift   uint64
+	bitset  Bitset `bson:"bitset"`
+	sizeExp uint64 `bson:"sizeExp"`
+	size    uint64 `bson:"size"`
+	setLocs uint64 `bson:"setLocs"`
+	shift   uint64 `bson:"shift"`
 }
 
 func (bl Bloom) Add(entry []byte) {
 	l, h := bl.sipHash(entry)
 	for i := uint64(0); i < bl.setLocs; i++ {
-		bl.bitset.Set((h + i*l) & bl.size)
+		bl.bitset.Set((h + i * l) & bl.size)
 	}
 }
 
 func (bl Bloom) Has(entry []byte) bool {
 	l, h := bl.sipHash(entry)
 	for i := uint64(0); i < bl.setLocs; i++ {
-		switch bl.bitset.IsSet((h + i*l) & bl.size) {
+		switch bl.bitset.IsSet((h + i * l) & bl.size) {
 		case false:
 			return false
 		}
@@ -86,20 +85,19 @@ func (bl *Bloom) Clear() {
 	(*bl).bitset.Clear()
 }
 
-
 type Bitset struct {
-	bs    []uint64
-	start uintptr
+	bs    []uint64 `bson:"bs"`
+	start uintptr  `bson:"start"`
 }
 
 func (bs *Bitset) Size(sz uint64) {
-	(*bs).bs = make([]uint64, sz>>6)
+	(*bs).bs = make([]uint64, sz >> 6)
 	(*bs).start = uintptr(unsafe.Pointer(&bs.bs[0]))
 }
 
 func (bs *Bitset) Set(idx uint64) {
-	ptr := unsafe.Pointer(bs.start + uintptr(idx>>3))
-	*(*uint8)(ptr) |= mask[idx%8]
+	ptr := unsafe.Pointer(bs.start + uintptr(idx >> 3))
+	*(*uint8)(ptr) |= mask[idx % 8]
 }
 
 func (bs *Bitset) Clear() {
@@ -109,7 +107,7 @@ func (bs *Bitset) Clear() {
 }
 
 func (bs *Bitset) IsSet(idx uint64) bool {
-	ptr := unsafe.Pointer(bs.start + uintptr(idx>>3))
+	ptr := unsafe.Pointer(bs.start + uintptr(idx >> 3))
 	r := ((*(*uint8)(ptr)) >> (idx % 8)) & 1
 	return r == 1
 }
