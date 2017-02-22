@@ -50,10 +50,10 @@ func NewFromFile(filePath string, failRate float64) (filter *Bloom, err error) {
 		return
 	}
 	defer file.Close()
-	return NewFromReader(file, failRate)
+	return NewFromReadSeeker(file, failRate)
 }
 
-func NewFromReader(reader io.ReadSeeker, failRate float64) (filter *Bloom, err error) {
+func NewFromReadSeeker(reader io.ReadSeeker, failRate float64) (filter *Bloom, err error) {
 	filterSize, err := lineCounter(reader)
 	if err != nil {
 		return
