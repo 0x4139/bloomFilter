@@ -1,10 +1,24 @@
 package bloomFilter
 
 import (
-	"log"
 	"math"
 	"unsafe"
+	"os"
+	"bufio"
+	"bytes"
+	"io"
+	"net/http"
+	"time"
+	"fmt"
+	"path/filepath"
 )
+
+const (
+	ONE_IN_TEN_THOUSAND float64 = 0.01
+	ONE_IN_ONE_HUNDRED_THOUSANDS float64 = 0.001
+)
+
+var CacheFolder = "/tmp"
 
 // helper
 var mask = []uint8{1, 2, 4, 8, 16, 32, 64, 128}
@@ -27,26 +41,70 @@ func calcSizeByWrongPositives(numEntries, wrongs float64) (uint64, uint64) {
 	return uint64(size), uint64(locs)
 }
 
-func New(params ...float64) (bloomfilter Bloom) {
-	var entries, locs uint64
-	if len(params) == 2 {
-		if params[1] < 1 {
-			entries, locs = calcSizeByWrongPositives(params[0], params[1])
-		} else {
-			entries, locs = uint64(params[0]), uint64(params[1])
-		}
-	} else {
-		log.Fatal("Bad usage! Please check Readme.md")
-	}
+func New(filterSize, failRate float64) (filter *Bloom, err error) {
+	entries, locs := calcSizeByWrongPositives(filterSize, failRate)
 	size, exponent := getSize(uint64(entries))
-	bloomfilter = Bloom{
+	filter = &Bloom{
 		sizeExp: exponent,
 		size:    size - 1,
 		setLocs: locs,
 		shift:   64 - exponent,
 	}
-	bloomfilter.Size(size)
-	return bloomfilter
+	filter.Size(size)
+	return
+}
+
+// Creates a Bloom filter from a os file
+func NewFromFile(filePath string, failRate float64) (filter *Bloom, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	return NewFromReadSeeker(file, failRate)
+}
+
+func NewFromReadSeeker(reader io.ReadSeeker, failRate float64) (filter *Bloom, err error) {
+	filterSize, err := lineCounter(reader)
+	if err != nil {
+		return
+	}
+	filter, err = New(float64(filterSize), failRate)
+	if err != nil {
+		return
+	}
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		data := scanner.Bytes()
+		filter.Add(bytes.TrimSpace(bytes.ToLower(data)))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return
+}
+
+func NewFromUrl(url string, failRate float64) (filter *Bloom, err error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	tempFileName := time.Now().UnixNano()
+	tempFilePath := filepath.Join(CacheFolder, fmt.Sprintf("bloom_%v", tempFileName))
+
+	tempFile, err := os.Create(tempFilePath)
+	if err != nil {
+		return
+	}
+	defer tempFile.Close()
+
+	_, err = io.Copy(tempFile, resp.Body)
+	if err != nil {
+		return
+	}
+	return NewFromFile(tempFilePath, failRate)
 }
 
 type Bloom struct {
@@ -110,4 +168,32 @@ func (bs *Bitset) IsSet(idx uint64) bool {
 	ptr := unsafe.Pointer(bs.start + uintptr(idx >> 3))
 	r := ((*(*uint8)(ptr)) >> (idx % 8)) & 1
 	return r == 1
+}
+
+func lineCounter(r io.ReadSeeker) (int, error) {
+	buf := make([]byte, 8196)
+	count := 0
+	lineSep := []byte{'\n'}
+
+	for {
+		c, err := r.Read(buf)
+		if err != nil && err != io.EOF {
+			return count, err
+		}
+		count += bytes.Count(buf[:c], lineSep)
+
+		if c > 0 && buf[c - 1] != lineSep[0] {
+			count++
+		}
+
+		if err == io.EOF {
+
+			break
+		}
+	}
+	_, err := r.Seek(0, 0)
+	if err != nil {
+		panic(err)
+	}
+	return count, nil
 }
