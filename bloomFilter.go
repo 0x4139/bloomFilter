@@ -7,6 +7,14 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"net/http"
+	"time"
+	"fmt"
+)
+
+const (
+	ONE_IN_A_HUNDRED float64 = 0.01
+	ONE_IN_A_THOUSAND float64 = 0.001
 )
 
 // helper
@@ -71,6 +79,32 @@ func NewFromReadSeeker(reader io.ReadSeeker, failRate float64) (filter *Bloom, e
 		return nil, err
 	}
 	return
+}
+
+func NewFromUrl(url string, failRate float64) (filter *Bloom, err error) {
+	println("begin")
+	resp, err := http.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	println("after get")
+	unix := time.Now().UnixNano()
+	tempFilePath := "/tmp/bloom_" + fmt.Sprintf("%v", unix)
+
+	tempFile, err := os.Create(tempFilePath)
+	if err != nil {
+		return
+	}
+	defer tempFile.Close()
+	println("after temp file created")
+
+	_, err = io.Copy(tempFile, resp.Body)
+	if err != nil {
+		return
+	}
+	println("after copy")
+	return NewFromFile(tempFilePath, failRate)
 }
 
 type Bloom struct {
@@ -162,8 +196,4 @@ func lineCounter(r io.ReadSeeker) (int, error) {
 		panic(err)
 	}
 	return count, nil
-}
-func peek(buf *bytes.Buffer, b []byte) (int, error) {
-	buf2 := bytes.NewBuffer(buf.Bytes())
-	return buf2.Read(b)
 }
