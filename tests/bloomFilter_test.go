@@ -16,7 +16,7 @@ func TestShouldCreateNewBloomFilter(t *testing.T) {
 func TestShouldCreateNewBloomFilterFromReader(t *testing.T) {
 	value := "FOO"
 	reader := bytes.NewReader([]byte(value))
-	filter, err := bloomFilter.NewFromReader(reader, float64(0.01))
+	filter, err := bloomFilter.NewFromReadSeeker(reader, float64(0.01))
 	if err != nil || filter == nil {
 		t.Error("Bloom filter could not be created", err.Error());
 	}
