@@ -1,9 +1,12 @@
 package bloomFilter
 
 import (
-	"log"
 	"math"
 	"unsafe"
+	"os"
+	"bufio"
+	"bytes"
+	"io"
 )
 
 // helper
@@ -27,26 +30,47 @@ func calcSizeByWrongPositives(numEntries, wrongs float64) (uint64, uint64) {
 	return uint64(size), uint64(locs)
 }
 
-func New(params ...float64) (bloomfilter Bloom) {
-	var entries, locs uint64
-	if len(params) == 2 {
-		if params[1] < 1 {
-			entries, locs = calcSizeByWrongPositives(params[0], params[1])
-		} else {
-			entries, locs = uint64(params[0]), uint64(params[1])
-		}
-	} else {
-		log.Fatal("Bad usage! Please check Readme.md")
-	}
+func New(filterSize, failRate float64) (filter *Bloom, err error) {
+	entries, locs := calcSizeByWrongPositives(filterSize, failRate)
 	size, exponent := getSize(uint64(entries))
-	bloomfilter = Bloom{
+	filter = &Bloom{
 		sizeExp: exponent,
 		size:    size - 1,
 		setLocs: locs,
 		shift:   64 - exponent,
 	}
-	bloomfilter.Size(size)
-	return bloomfilter
+	filter.Size(size)
+	return
+}
+
+// Creates a Bloom filter from a os file
+func NewFromFile(filePath string, failRate float64) (filter *Bloom, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	return NewFromReader(file, failRate)
+}
+
+func NewFromReader(reader io.ReadSeeker, failRate float64) (filter *Bloom, err error) {
+	filterSize, err := lineCounter(reader)
+	if err != nil {
+		return
+	}
+	filter, err = New(float64(filterSize), failRate)
+	if err != nil {
+		return
+	}
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		data := scanner.Bytes()
+		filter.Add(bytes.TrimSpace(bytes.ToLower(data)))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return
 }
 
 type Bloom struct {
@@ -110,4 +134,36 @@ func (bs *Bitset) IsSet(idx uint64) bool {
 	ptr := unsafe.Pointer(bs.start + uintptr(idx >> 3))
 	r := ((*(*uint8)(ptr)) >> (idx % 8)) & 1
 	return r == 1
+}
+
+func lineCounter(r io.ReadSeeker) (int, error) {
+	buf := make([]byte, 8196)
+	count := 0
+	lineSep := []byte{'\n'}
+
+	for {
+		c, err := r.Read(buf)
+		if err != nil && err != io.EOF {
+			return count, err
+		}
+		count += bytes.Count(buf[:c], lineSep)
+
+		if c > 0 && buf[c - 1] != lineSep[0] {
+			count++
+		}
+
+		if err == io.EOF {
+
+			break
+		}
+	}
+	_, err := r.Seek(0, 0)
+	if err != nil {
+		panic(err)
+	}
+	return count, nil
+}
+func peek(buf *bytes.Buffer, b []byte) (int, error) {
+	buf2 := bytes.NewBuffer(buf.Bytes())
+	return buf2.Read(b)
 }
