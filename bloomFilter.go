@@ -90,10 +90,9 @@ func NewFromUrl(url string, failRate float64) (filter *Bloom, err error) {
 		return
 	}
 	defer resp.Body.Close()
-	unix := time.Now().UnixNano()
 
-	tempFileName := "bloom_" + fmt.Sprintf("%v", unix)
-	tempFilePath := filepath.Join(CacheFolder, tempFileName)
+	tempFileName := time.Now().UnixNano()
+	tempFilePath := filepath.Join(CacheFolder, fmt.Sprintf("bloom_%v", tempFileName))
 
 	tempFile, err := os.Create(tempFilePath)
 	if err != nil {
