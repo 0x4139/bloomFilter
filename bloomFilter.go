@@ -9,9 +9,6 @@ import (
 	"net/http"
 	"time"
 	"path/filepath"
-	"strings"
-	"fmt"
-	"log"
 	"github.com/jlaffaye/ftp"
 )
 
@@ -97,39 +94,38 @@ func NewFromUrl(url string, failRate float64) (*Bloom, error) {
 	return NewFromFile(tempFilePath, failRate)
 }
 
-// TODO unzip here?
-func NewFromFTP(ftpAddress, username, password, ftpFilePath string, failRate float64) (*Bloom, error) {
+func NewFromFTP(ftpAddress, username, password, ftpFilePath string, failRate float64) (filter *Bloom, err error) {
 	filename := newMd5FromString(ftpFilePath)
 	tempFilePath := filepath.Join(CacheFolder, filename)
 	fileInfo, err := os.Stat(tempFilePath)
 	if err != nil || fileInfo.ModTime().Add(TTL).After(time.Now()) {
 		err := os.MkdirAll(CacheFolder, 0755)
 		if err != nil {
-			return nil, err
+			return
 		}
 		conn, err := ftp.Connect(ftpAddress)
 		if err != nil {
-			return "", err
+			return
 		}
 		err = conn.Login(username, password)
 		if err != nil {
-			return "", err
+			return
 		}
 		cd, err := conn.CurrentDir()
 		if err != nil {
-			return "", err
+			return
 		}
 		ftpFile, err := conn.RetrFrom(cd + ftpFilePath, 0)
 		if err != nil {
-			return nil, err
+			return
 		}
 		out, err := os.Create(tempFilePath)
 		if err != nil {
-			return nil, err
+			return
 		}
 		_, err = io.Copy(out, ftpFile)
 		if err != nil {
-			return nil, err
+			return
 		}
 		out.Close()
 		conn.Quit()
