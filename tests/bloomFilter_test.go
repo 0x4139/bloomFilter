@@ -32,33 +32,6 @@ func TestShouldContainValueNewFromFile(t *testing.T) {
 	}
 }
 
-func TestShouldContainValueNewFromUrl(t *testing.T) {
-	url := "http://tilinga:bilinga@monsterbox.nexthosting.ro/internal/sparta/19152_MDR-2139-life-university-2139_2017-02-15.txt"
-	emailToCheck := "c3d8cbcbc9923178d93a0f53111edae0" // md5 entry
-	filter, err := bloomFilter.NewFromUrl(url, bloomFilter.ONE_IN_TEN_THOUSAND)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-	if !filter.Has([]byte(emailToCheck)) {
-		t.Fatal("Bloom filter should containcontain " + emailToCheck + ", but it doesn't ")
-	}
-}
-
-func TestShouldContainValueNewFromFtp(t *testing.T) {
-	url := "ftp://68.64.169.66"
-	username := "hitpath"
-	password := "dUpn4mAk2vuFNtvF"
-	ftpFilePath := "1127_FreshStartTax.zip"
-	emailToCheck := "004ee@comcast.net"
-	filter, err := bloomFilter.NewFromFTP(url, username, password, ftpFilePath, bloomFilter.ONE_IN_TEN_THOUSAND)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-	if !filter.Has([]byte(emailToCheck)) {
-		t.Fatal("Bloom filter should containcontain " + emailToCheck + ", but it doesn't ")
-	}
-}
-
 func TestShouldContainValue(t *testing.T) {
 	valueToCheck := "fish"
 	filter, _ := bloomFilter.New(float64(1 << 16), bloomFilter.ONE_IN_TEN_THOUSAND)
