@@ -99,33 +99,33 @@ func NewFromFTP(ftpAddress, username, password, ftpFilePath string, failRate flo
 	tempFilePath := filepath.Join(CacheFolder, filename)
 	fileInfo, err := os.Stat(tempFilePath)
 	if err != nil || fileInfo.ModTime().Add(TTL).After(time.Now()) {
-		err := os.MkdirAll(CacheFolder, 0755)
+		err = os.MkdirAll(CacheFolder, 0755)
 		if err != nil {
-			return
+			return nil, err
 		}
 		conn, err := ftp.Connect(ftpAddress)
 		if err != nil {
-			return
+			return nil, err
 		}
 		err = conn.Login(username, password)
 		if err != nil {
-			return
+			return nil, err
 		}
 		cd, err := conn.CurrentDir()
 		if err != nil {
-			return
+			return nil, err
 		}
 		ftpFile, err := conn.RetrFrom(cd + ftpFilePath, 0)
 		if err != nil {
-			return
+			return nil, err
 		}
 		out, err := os.Create(tempFilePath)
 		if err != nil {
-			return
+			return nil, err
 		}
 		_, err = io.Copy(out, ftpFile)
 		if err != nil {
-			return
+			return nil, err
 		}
 		out.Close()
 		conn.Quit()
