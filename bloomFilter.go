@@ -1,7 +1,6 @@
 package bloomFilter
 
 import (
-	"math"
 	"unsafe"
 	"os"
 	"bufio"
@@ -9,8 +8,11 @@ import (
 	"io"
 	"net/http"
 	"time"
-	"fmt"
 	"path/filepath"
+	"strings"
+	"fmt"
+	"log"
+	"github.com/jlaffaye/ftp"
 )
 
 const (
@@ -18,28 +20,11 @@ const (
 	ONE_IN_ONE_HUNDRED_THOUSANDS float64 = 0.001
 )
 
-var CacheFolder = "/tmp"
+var CacheFolder string = "/tmp/bloomFilter/"
+var TTL time.Duration = time.Hour * 24
 
 // helper
 var mask = []uint8{1, 2, 4, 8, 16, 32, 64, 128}
-
-func getSize(ui64 uint64) (size uint64, exponent uint64) {
-	if ui64 < uint64(512) {
-		ui64 = uint64(512)
-	}
-	size = uint64(1)
-	for size < ui64 {
-		size <<= 1
-		exponent++
-	}
-	return size, exponent
-}
-
-func calcSizeByWrongPositives(numEntries, wrongs float64) (uint64, uint64) {
-	size := -1 * numEntries * math.Log(wrongs) / math.Pow(float64(0.69314718056), 2)
-	locs := math.Ceil(float64(0.69314718056) * size / numEntries)
-	return uint64(size), uint64(locs)
-}
 
 func New(filterSize, failRate float64) (filter *Bloom, err error) {
 	entries, locs := calcSizeByWrongPositives(filterSize, failRate)
@@ -65,7 +50,7 @@ func NewFromFile(filePath string, failRate float64) (filter *Bloom, err error) {
 }
 
 func NewFromReadSeeker(reader io.ReadSeeker, failRate float64) (filter *Bloom, err error) {
-	filterSize, err := lineCounter(reader)
+	filterSize, err := countLines(reader)
 	if err != nil {
 		return
 	}
@@ -84,25 +69,70 @@ func NewFromReadSeeker(reader io.ReadSeeker, failRate float64) (filter *Bloom, e
 	return
 }
 
-func NewFromUrl(url string, failRate float64) (filter *Bloom, err error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return
+func NewFromUrl(url string, failRate float64) (*Bloom, error) {
+	filename := newMd5FromString(url)
+	//fileExtension := ".txt"
+	tempFilePath := filepath.Join(CacheFolder, filename)
+	fileInfo, err := os.Stat(tempFilePath)
+	if err != nil || fileInfo.ModTime().Add(TTL).After(time.Now()) {
+		err := os.MkdirAll(CacheFolder, 0755)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.Get(url)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		tempFile, err := os.Create(tempFilePath)
+		if err != nil {
+			return nil, err
+		}
+		defer tempFile.Close()
+		_, err = io.Copy(tempFile, resp.Body)
+		if err != nil {
+			return nil, err
+		}
 	}
-	defer resp.Body.Close()
+	return NewFromFile(tempFilePath, failRate)
+}
 
-	tempFileName := time.Now().UnixNano()
-	tempFilePath := filepath.Join(CacheFolder, fmt.Sprintf("bloom_%v", tempFileName))
-
-	tempFile, err := os.Create(tempFilePath)
-	if err != nil {
-		return
-	}
-	defer tempFile.Close()
-
-	_, err = io.Copy(tempFile, resp.Body)
-	if err != nil {
-		return
+// TODO unzip here?
+func NewFromFTP(ftpAddress, username, password, ftpFilePath string, failRate float64) (*Bloom, error) {
+	filename := newMd5FromString(ftpFilePath)
+	tempFilePath := filepath.Join(CacheFolder, filename)
+	fileInfo, err := os.Stat(tempFilePath)
+	if err != nil || fileInfo.ModTime().Add(TTL).After(time.Now()) {
+		err := os.MkdirAll(CacheFolder, 0755)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := ftp.Connect(ftpAddress)
+		if err != nil {
+			return "", err
+		}
+		err = conn.Login(username, password)
+		if err != nil {
+			return "", err
+		}
+		cd, err := conn.CurrentDir()
+		if err != nil {
+			return "", err
+		}
+		ftpFile, err := conn.RetrFrom(cd + ftpFilePath, 0)
+		if err != nil {
+			return nil, err
+		}
+		out, err := os.Create(tempFilePath)
+		if err != nil {
+			return nil, err
+		}
+		_, err = io.Copy(out, ftpFile)
+		if err != nil {
+			return nil, err
+		}
+		out.Close()
+		conn.Quit()
 	}
 	return NewFromFile(tempFilePath, failRate)
 }
@@ -130,6 +160,11 @@ func (bl Bloom) Has(entry []byte) bool {
 			return false
 		}
 	}
+	return true
+}
+
+// TODO
+func (bl Bloom) HasMd5(md5 string) bool {
 	return true
 }
 
@@ -168,32 +203,4 @@ func (bs *Bitset) IsSet(idx uint64) bool {
 	ptr := unsafe.Pointer(bs.start + uintptr(idx >> 3))
 	r := ((*(*uint8)(ptr)) >> (idx % 8)) & 1
 	return r == 1
-}
-
-func lineCounter(r io.ReadSeeker) (int, error) {
-	buf := make([]byte, 8196)
-	count := 0
-	lineSep := []byte{'\n'}
-
-	for {
-		c, err := r.Read(buf)
-		if err != nil && err != io.EOF {
-			return count, err
-		}
-		count += bytes.Count(buf[:c], lineSep)
-
-		if c > 0 && buf[c - 1] != lineSep[0] {
-			count++
-		}
-
-		if err == io.EOF {
-
-			break
-		}
-	}
-	_, err := r.Seek(0, 0)
-	if err != nil {
-		panic(err)
-	}
-	return count, nil
 }
